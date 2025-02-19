@@ -1,8 +1,20 @@
 Start-Transcript -Path C:\winrm_setup.log -Append
 
-# Create a self-signed certificate
 Write-Output "Creating self-signed certificate..."
 $Cert = New-SelfSignedCertificate -CertstoreLocation Cert:\LocalMachine\My -DnsName "$env:COMPUTERNAME"
+
+# Ensure WinRM service is enabled and started
+Write-Output "Ensuring WinRM service is running..."
+Set-Service -Name winrm -StartupType Automatic
+Start-Service -Name winrm
+
+# Wait for WinRM to be fully available
+$counter = 0
+while (-not (Get-Service winrm).Status -eq "Running" -and $counter -lt 10) {
+    Write-Output "Waiting for WinRM to start... ($counter/10)"
+    Start-Sleep -Seconds 2
+    $counter++
+}
 
 # Check if WinRM listeners exist before trying to remove them
 Write-Output "Checking for existing WinRM listeners..."
@@ -15,13 +27,18 @@ if ($existingListeners) {
     Write-Output "No existing WinRM listeners found. Skipping removal."
 }
 
-# Create HTTPS listener
-Write-Output "Creating new WinRM HTTPS listener..."
-New-Item -Path WSMan:\LocalHost\Listener -Transport HTTPS -Address * -CertificateThumbPrint $Cert.Thumbprint -Force
+# Create HTTPS listener only if WinRM is running
+if ((Get-Service winrm).Status -eq "Running") {
+    Write-Output "Creating new WinRM HTTPS listener..."
+    New-Item -Path WSMan:\LocalHost\Listener -Transport HTTPS -Address * -CertificateThumbPrint $Cert.Thumbprint -Force
+} else {
+    Write-Output "ERROR: WinRM is not running. Cannot create a listener."
+    Stop-Transcript
+    exit 1
+}
 
-# Restart WinRM service
+# Restart WinRM service to apply changes
 Write-Output "Restarting WinRM service..."
-Set-Service -Name winrm -StartupType Automatic
 Restart-Service winrm
 
 # Remove HTTP listener if it exists
