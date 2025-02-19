@@ -4,9 +4,16 @@ Start-Transcript -Path C:\winrm_setup.log -Append
 Write-Output "Creating self-signed certificate..."
 $Cert = New-SelfSignedCertificate -CertstoreLocation Cert:\LocalMachine\My -DnsName "$env:COMPUTERNAME"
 
-# Remove existing listeners
-Write-Output "Removing existing WinRM listeners..."
-Remove-Item -Path WSMan:\Localhost\listener\listener* -Recurse -ErrorAction SilentlyContinue
+# Check if WinRM listeners exist before trying to remove them
+Write-Output "Checking for existing WinRM listeners..."
+$existingListeners = Get-ChildItem -Path WSMan:\Localhost\Listener -ErrorAction SilentlyContinue
+
+if ($existingListeners) {
+    Write-Output "Removing existing WinRM listeners..."
+    Remove-Item -Path WSMan:\Localhost\Listener\listener* -Recurse -Force -ErrorAction SilentlyContinue
+} else {
+    Write-Output "No existing WinRM listeners found. Skipping removal."
+}
 
 # Create HTTPS listener
 Write-Output "Creating new WinRM HTTPS listener..."
@@ -19,7 +26,12 @@ Restart-Service winrm
 
 # Remove HTTP listener if it exists
 Write-Output "Removing HTTP listener..."
-Remove-WSManInstance winrm/config/Listener -SelectorSet @{Address="*";Transport="http"} -ErrorAction SilentlyContinue
+try {
+    Remove-WSManInstance winrm/config/Listener -SelectorSet @{Address="*";Transport="http"} -ErrorAction Stop
+    Write-Output "HTTP listener removed."
+} catch {
+    Write-Output "No HTTP listener found or error occurred: $_"
+}
 
 # Add firewall rule for WinRM
 Write-Output "Adding firewall rule for WinRM..."
